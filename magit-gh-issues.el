@@ -52,15 +52,26 @@
 (require 'magit)
 (require 'gh-issues)
 (require 'gh-users)
+(require 'gh-profile)
+(require 'dash)
 ;;(require 'gh-issues-comments)
 
 (require 'pcache)
 (require 's)
 
-(defvar magit-gh-issues-maybe-filter-issues 'identity
+(defvar magit-gh-issues-maybe-filter-issues 'magit-gh-issues-filter-open-pr
   "Filter function which should validate issues you want to be
   viewed in magit. It receives a list of issues and should
   return a list of issues.")
+
+(defun magit-gh-issues-filter-open-pr (ilist)
+ (-filter (lambda (x) (and
+			(not (slot-boundp (oref x :pull-request) :diff-url))
+			(equal (oref x :state) "open")
+			)
+	    ) ilist)
+ )
+
 
 (defvar magit-gh-issues-collapse-issues t
   "Collapse commits in issues requests listing.")
@@ -68,8 +79,12 @@
 (defun magit-gh-issues-get-api ()
   (gh-issues-api "api" :sync t :num-retries 1 :cache (gh-cache "cache")))
 
+(defun magit-gh-issues-get-profile-from-config ()
+  (magit-get "magit" "gh-pulls-profile")
+  )
+
 (defun magit-gh-issues-get-repo-from-config ()
-  (let* ((cfg (magit-get "magit" "gh-issues-repo")))
+  (let* ((cfg (magit-get "magit" "gh-pulls-repo")))
     (when cfg
       (let* ((split (split-string cfg "/")))
         (cons (car split) (cadr split))))))
@@ -88,6 +103,7 @@
           (setq creds parsed))))))
 
 (defun magit-gh-issues-guess-repo ()
+  (setq gh-profile-current-profile (magit-gh-issues-get-profile-from-config))
   (or (magit-gh-issues-get-repo-from-config)
       (magit-gh-issues-guess-repo-from-origin)))
 
@@ -168,8 +184,8 @@
                         (magit-insert-section (pull info magit-gh-issues-collapse-issues)
                           (magit-insert-heading header)
                           (dolist (lbl labels)
-                            (let ((lbl-clr (format "#%s" (cdr (assoc 'color lbl))))
-                                  (lbl-txt (format "%s " (cdr (assoc 'name lbl)))))
+                            (let ((lbl-clr (format "#%s" (oref lbl :color)))
+                                  (lbl-txt (format "%s " (oref lbl :name))))
                               (insert (propertize lbl-txt 'face (list :foreground lbl-clr)))))
                           (insert "\n\n")
                           (dolist (chunk chunks)
@@ -181,7 +197,7 @@
                   ;; on that number, break from loop and insert some sort of text
                   (when (> (length stubs) 0)
                     (insert "\n"))))))))
-    (error "Something went terribly wrong in magit-gh-issues-mode")))
+    ((debug error) "Something went terribly wrong in magit-gh-issues-mode")))
 
 (defun magit-gh-issues-url-for-issue (info)
   "Return github url for an issue request using INFO."
@@ -231,8 +247,8 @@
 
 (defvar magit-gh-issues-mode-map
   (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "# g i") 'magit-gh-issues-reload)
-    (define-key map (kbd "# g b") 'magit-gh-issues-open-in-browser)
+    (define-key map (kbd "@ g i") 'magit-gh-issues-reload)
+    (define-key map (kbd "@ g b") 'magit-gh-issues-open-in-browser)
     map))
 
 (defvar magit-gh-issues-mode-lighter " Issues")
@@ -267,34 +283,6 @@
 
 (magit-define-popup-action 'magit-dispatch-popup
   ?@ "Github Issues" 'magit-gh-issues-popup ?!)
-
-;; Tests
-(ert-deftest test-magit-gh-issues-parse-url-git-at ()
-  (should (equal '("creichert" . "magit-gh-issues")
-                 (magit-gh-issues-parse-url "git@github.com:creichert/magit-gh-issues.git"))))
-
-(ert-deftest test-magit-gh-issues-parse-url-https ()
-  (should (equal '("creichert" . "magit-gh-issues")
-                 (magit-gh-issues-parse-url "https://github.com/creichert/magit-gh-issues.git"))))
-
-(ert-deftest test-magit-gh-issues-parse-url-https ()
-  (should (equal '("creichert" . "magit-gh-issues")
-                 (magit-gh-issues-parse-url "https://github.com/creichert/magit-gh-issues/"))))
-
-(ert-deftest test-magit-gh-issues-parse-url-http ()
-  (should (equal '("creichert" . "magit-gh-issues")
-                 (magit-gh-issues-parse-url "http://github.com/creichert/magit-gh-issues.git"))))
-
-(ert-deftest test-magit-gh-issues-parse-url-git ()
-  (should (equal '("creichert" . "magit-gh-issues")
-                 (magit-gh-issues-parse-url "git://github.com/creichert/magit-gh-issues.git"))))
-
-(ert-deftest test-magic-gh-pulls-parse-url-invalid ()
-  (should (eq nil (magit-gh-issues-parse-url "http://google.com"))))
-
-(ert-deftest test-magic-gh-pulls-parse-url-garbage ()
-  (should (eq nil (magit-gh-issues-parse-url "sfalwkerwe09"))))
-
 
 (provide 'magit-gh-issues)
 
